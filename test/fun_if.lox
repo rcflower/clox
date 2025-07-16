@@ -1,0 +1,10 @@
+fun a(n) {
+	if (n<5) 
+		print n;
+	else
+		print 5;
+	return n;
+}
+
+print a(3);
+a(10);
