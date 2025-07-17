@@ -6,98 +6,76 @@
 #include "table.h"
 #include "value.h"
 
+/* 
+* We implement a hash map: ObjString* (key) -> Value (value).
+*
+*	-- capacity is always a power of 2
+*	-- Tombstone: (key, val) = (NULL, TRUE_VAL)
+*/
+
 #define TABLE_MAX_LOAD 0.75
 
-void initTable(Table* table) {
+// ===== local helper function declarations =====
+
+static Entry* _find_entry(Entry* entries, int capacity, ObjString* key);
+// Return the entry with given key if existed, otherwise return the first
+// available entry (whose key is NULL) for such key,
+
+static void _adjust_cap(Table* table, int newCap);
+// Allocate a new table (really table->entries) with capacity = newCap 
+// and copy the current table there.
+
+// ===== main functions =====
+
+void table_init(Table* table) {
 	table->count = 0;
 	table->capacity = 0;
 	table->entries = NULL;
 }
 
-void freeTable(Table* table) {
+void table_free(Table* table) {
 	FREE_ARRAY(Entry, table->entries, table->capacity);
-	initTable(table);
+	Table_init(table);
 }
 
-static Entry* findEntry(Entry* entries, int capacity, ObjString* key) {
-	HASH_T index = key->hash & (capacity-1);
-	Entry* tombstone = NULL;
-
-	for (;;) {
-		Entry* entry = entries + index;
-		if (entry->key == NULL) {
-			if (IS_NIL(entry->value)) {
-				return tombstone != NULL ? tombstone : entry;	// return the first tombstone
-			} else {
-				if (tombstone == NULL) tombstone = entry;		// find the first tombstone
-			} 
-		} else if (entry->key == key) {
-			return entry;
-		}
-		index = (index+1) & (capacity-1);
-	}
-}
-
-static void adjustCapacity(Table* table, int capacity) {
-	Entry* entries = ALLOCATE(Entry, capacity);
-	for (int i=0; i<capacity; ++i) {
-		entries[i].key = NULL;
-		entries[i].value = NIL_VAL;
-	}
-
-	// copy the old table to the new and modify their positions
-	table->count = 0;
-	for (int i=0; i<table->capacity; ++i) {
-		Entry* entry = table->entries + i;
-		if (entry->key == NULL) continue;
-
-		Entry* dest = findEntry(entries, capacity, entry->key);
-		dest->key = entry->key;
-		dest->value = entry->value;
-		table->count++;
-	}
-
-	FREE_ARRAY(Entry, table->entries, table->capacity);
-	table->entries = entries;
-	table->capacity = capacity;
-}
-
-bool tableGet(Table* table, ObjString* key, Value* value) {
+bool table_get(Table* table, ObjString* key, Value* value) {
 	if (table->capacity == 0) return false;
 
-	Entry* entry = findEntry(table->entries, table->capacity, key);
+	Entry* entry = _find_entry(table->entries, table->capacity, key);
 	if (entry->key == NULL) return false;
 	*value = entry->value;
 	return true;
 }
 
-bool tableSet(Table* table, ObjString* key, Value value) {
+bool table_set(Table* table, ObjString* key, Value value) {
 	if (table->count+1 > table->capacity * TABLE_MAX_LOAD) {
-		int newCapacity = GROW_CAPACITY(table->capacity);
-		adjustCapacity(table, newCapacity);
+		int newCap = GROW_CAPACITY(table->capacity);
+		_adjust_cap(table, newCap);
 	}
 
-	Entry* entry = findEntry(table->entries, table->capacity, key);
+	Entry* entry = _find_entry(table->entries, table->capacity, key);
 	bool isNewKey = entry->key == NULL;
-	if (isNewKey && IS_NIL(entry->value)) table->count++;
+	if (isNewKey && IS_NIL(entry->value)) table->count++;  // not a tombstone
 
 	entry->key = key;
 	entry->value = value;
 	return isNewKey;
 }
 
-bool tableDelete(Table* table, ObjString* key) {
+bool table_del(Table* table, ObjString* key) {
 	if (table->capacity == 0) return false;
 
-	Entry* entry = findEntry(table->entries, table->capacity, key);
+	Entry* entry = _find_entry(table->entries, table->capacity, key);
 	if (entry->key == NULL) return false;
 
 	entry->key = NULL;
-	entry->value = BOOL_VAL(true);		// place a tombstone so that open addressing is still valid
+	entry->value = BOOL_VAL(true);		
+	// place a tombstone so that open addressing is still valid
+
 	return true;
 }
 
-void tableAddAll(Table* from, Table* to) {
+void table_add_table(Table* from, Table* to) {
 	for (int i=0; i<from->capacity; ++i) {
 		Entry* entry = from->entries + i;
 		if(entry->key != NULL) {
@@ -106,7 +84,7 @@ void tableAddAll(Table* from, Table* to) {
 	}
 }
 
-ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t hash) {
+ObjString* table_find_str(Table* table, const char* chars, int length, uint32_t hash) {
 	if (table->count == 0) return NULL;
 
 	HASH_T index = hash & (table->capacity-1);
@@ -126,7 +104,7 @@ ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t
 	}
 }
 
-void tableRemoveWhite(Table* table) {
+void table_rm_white(Table* table) {
 	for (int i=0; i<table->capacity; ++i) {
 		Entry* entry = table->entries + i;
 		if (entry->key != NULL && !entry->key->obj.isMarked) {
@@ -135,7 +113,7 @@ void tableRemoveWhite(Table* table) {
 	}
 }
 
-void markTable(Table* table) {
+void table_mark(Table* table) {
 	for (int i=0; i<table->capacity; ++i) {
 		Entry* entry = table->entries + i;
 		markObj((Obj*)entry->key);
@@ -144,7 +122,55 @@ void markTable(Table* table) {
 }
 
 
+// ===== local helper functions =====
 
+static Entry* _find_entry(Entry* entries, int capacity, ObjString* key) {
+	HASH_T index = key->hash & (capacity-1);
+	Entry* tombstone = NULL;
+
+	for (;;) {
+		Entry* entry = entries + index;
+		if (entry->key == NULL) {
+
+			// e.g. [k1] [tombstone] [k2] [NULL]
+			// Our key might be k2, so we shouldn't just return the tombstone
+			// If no key, return the first tombstone or [NULL]
+
+			if (IS_NIL(entry->value)) {
+				return tombstone != NULL ? tombstone : entry;	// return the tombstone
+			} else {
+				if (tombstone == NULL) tombstone = entry;		// set the first tombstone
+			} 
+		} else if (entry->key == key) {
+			return entry;
+		}
+		index = (index+1) & (capacity-1);
+	}
+}
+
+static void _adjust_cap(Table* table, int newCap) {
+	Entry* entries = ALLOCATE(Entry, newCap);
+	for (int i=0; i<newCap; ++i) {
+		entries[i].key = NULL;
+		entries[i].value = NIL_VAL;
+	}
+
+	// copy the old table to the new and modify their positions
+	table->count = 0;
+	for (int i=0; i<table->capacity; ++i) {
+		Entry* entry = table->entries + i;
+		if (entry->key == NULL) continue;
+
+		Entry* dest = _find_entry(entries, newCap, entry->key);
+		dest->key = entry->key;
+		dest->value = entry->value;
+		table->count++;
+	}
+
+	FREE_ARRAY(Entry, table->entries, table->capacity);
+	table->entries = entries;
+	table->capacity = newCap;
+}
 
 
 

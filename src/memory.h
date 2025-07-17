@@ -10,7 +10,7 @@
 #define FREE(type, ptr) reallocate(ptr, sizeof(type), 0)
 
 #define GROW_CAPACITY(capacity) \
-	((capacity)<8 ? 8 : (capacity) <<1 )
+	( (capacity) < 8 ? 8 : (capacity) << 1 )
 
 #define GROW_ARRAY(type, ptr, oldCount, newCount) \
 	(type*)reallocate( \
@@ -22,6 +22,8 @@
 	reallocate(ptr, sizeof(type) * oldCount, 0)
 
 void* reallocate(void* ptr, size_t oldSize, size_t newSize);
+
+// ===== GC =====
 void markObj(Obj* obj);
 void markValue(Value value);
 void collectGarbage();

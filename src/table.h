@@ -15,14 +15,25 @@ typedef struct {
 	Entry* entries;
 } Table;
 
-void initTable(Table* table);
-void freeTable(Table* table);
-bool tableGet(Table* table, ObjString* key, Value* value);	// return the found value in the pointer
-bool tableSet(Table* table, ObjString* key, Value value);	// return if key is new
-bool tableDelete(Table* table, ObjString* key);
-void tableAddAll(Table* from, Table* to);
-ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t hash);
-void tableRemoveWhite(Table* table);
-void markTable(Table* table);
+void table_init(Table* table);
+
+void table_free(Table* table);
+
+bool table_get(Table* table, ObjString* key, Value* value);	
+// value = table[key]; Return false if key is not found.
+
+bool table_set(Table* table, ObjString* key, Value value);
+// table[key] = value; Return if key is new.
+
+bool table_del(Table* table, ObjString* key);
+// Return if key is in table.
+
+void table_add_table(Table* from, Table* to);
+
+ObjString* table_find_str(Table* table, const char* chars, int length, uint32_t hash);
+
+void table_rm_white(Table* table);
+
+void table_mark(Table* table);
 
 #endif

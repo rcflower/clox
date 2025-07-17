@@ -6,54 +6,16 @@
 #include "memory.h"
 #include "object.h"
 
+// ===== main functions =====
 
-bool valuesEqual(Value a, Value b) {
-#ifdef NAN_BOXING
+bool value_equal(Value a, Value b) {
 	if (IS_NUMBER(a) && IS_NUMBER(b)) {
 		return AS_NUMBER(a) == AS_NUMBER(b);
 	}
 	return a == b;
-#else
-	if (a.type != b.type) return false;
-	switch (a.type) {
-		case VAL_BOOL:		return AS_BOOL(a) == AS_BOOL(b);
-		case VAL_NIL: 		return true;
-		case VAL_NUMBER:	return AS_NUMBER(a) == AS_NUMBER(b);
-		case VAL_OBJ:		return AS_OBJ(a) == AS_OBJ(b);
-		default:			return false;
-	}
-#endif
 }
 
-void initValueArray(ValueArray* array) {
-	array->count = 0;
-	array->capacity = 0;
-	array->values = NULL;
-}
-
-void writeValueArray(ValueArray* array, Value value) {
-	if (array->capacity < array->count+1) {
-		int oldCapacity = array->capacity;
-		array->capacity = GROW_CAPACITY(oldCapacity);
-		array->values = GROW_ARRAY(
-			Value,
-			array->values,
-			oldCapacity,
-			array->capacity
-		);
-	}
-
-	array->values[array->count] = value;
-	array->count++;
-}
-
-void freeValueArray(ValueArray* array) {
-	FREE_ARRAY(Value, array->values, array->capacity);
-	initValueArray(array);
-}
-
-void printValue(Value value) {
-#ifdef NAN_BOXING
+void value_print(Value value) {
 	if (IS_NIL(value)) {
 		printf("nil");
 	} else if (IS_BOOL(value)) {
@@ -61,19 +23,40 @@ void printValue(Value value) {
 	} else if (IS_NUMBER(value)) {
 		printf("%g", AS_NUMBER(value));
 	} else if (IS_OBJ(value)) {
-		printObj(value);
+		obj_print(value);
 	}
-#else
-	switch(value.type) {
-		case VAL_BOOL:
-			printf(AS_BOOL(value) ? "true" : "false");
-			break;
-		case VAL_NIL: printf("nil"); break;
-		case VAL_NUMBER: printf("%g", AS_NUMBER(value)); break;
-		case VAL_OBJ: printObj(value); break;
-	}
-#endif
 }
+
+// ===== Array methods =====
+
+void array_init(Array* array) {
+	array->count = 0;
+	array->capacity = 0;
+	array->values = NULL;
+}
+
+void array_free(ValueArray* array) {
+	FREE_ARRAY(Value, array->values, array->capacity);
+	array_init(array);
+}
+
+void array_append(Array* array, Value value) {
+	if (array->capacity < array->count+1) {
+		int oldCapacity = array->capacity;
+		array->capacity = GROW_CAPACITY(oldCapacity);
+		array->values = (Value*)reallocate(
+			array->values,
+			sizeof(Value) * oldCapacity,
+			sizeof(Value) * array->capacity
+		);
+	}
+
+	array->values[array->count++] = value;
+}
+
+
+
+
 
 
 
