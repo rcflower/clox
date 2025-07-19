@@ -53,10 +53,12 @@ typedef struct {
 	ValueArray constants;		// constant pool for constants
 } Chunk;
 
-void initChunk(Chunk* chunk);
-void freeChunk(Chunk* chunk);
-void writeChunk(Chunk* chunk, uint8_t byte, int line);
-int  addConstant(Chunk* chunk, Value value);
+void chunk_init(Chunk* chunk);
+void chunk_free(Chunk* chunk);
+void chunk_add_code(Chunk* chunk, uint8_t byte, int line);
+
+int  chunk_add_const(Chunk* chunk, Value value);
+// add value to chunk->constants, return its index
 
 
 #endif

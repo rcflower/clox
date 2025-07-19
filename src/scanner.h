@@ -32,9 +32,9 @@ typedef struct {
 	int line;
 } Token;
 
-void scan_init(const char* source);
-Token scan_token();					// scan and return the next available token
-void token_print(Token* token);
+void 	scan_init(const char* source);
+Token 	scan_token();					// scan and return the next available token
+void 	token_print(Token* token);
 
 #endif
 

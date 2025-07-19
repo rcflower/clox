@@ -40,7 +40,7 @@ void array_free(ValueArray* array) {
 	array_init(array);
 }
 
-void array_append(Array* array, Value value) {
+void array_add(Array* array, Value value) {
 	if (array->capacity < array->count+1) {
 		int oldCapacity = array->capacity;
 		array->capacity = GROW_CAPACITY(oldCapacity);

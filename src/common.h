@@ -15,6 +15,8 @@
 // #define DEBUG_STRESS_GC
 // #define DEBUG_LOG_GC
 
+typedef uint8_t Byte;
+
 #define HASH_T uint32_t
 #define UINT8_COUNT (UINT8_MAX + 1)
 #define UINT24_MAX	0xffffff

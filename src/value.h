@@ -63,6 +63,6 @@ void value_print(Value value);
 
 void array_init(ValueArray* array);
 void array_free(ValueArray* array);
-void array_append(ValueArray* array, Value value);
+void array_add(ValueArray* array, Value value);
 
 #endif
