@@ -35,7 +35,7 @@ void array_init(Array* array) {
 	array->values = NULL;
 }
 
-void array_free(ValueArray* array) {
+void array_free(Array* array) {
 	FREE_ARRAY(Value, array->values, array->capacity);
 	array_init(array);
 }

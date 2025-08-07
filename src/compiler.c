@@ -80,10 +80,6 @@ typedef struct ClassCompiler {
 
 // ===== Global variables =====
 
-/*
-*	
-*/
-
 Parser parser;
 Compiler* curCompiler = NULL;
 ClassCompiler* curClass = NULL;
@@ -100,11 +96,11 @@ static void _error(const char* message);			// _error_at(&parser.previous)
 static void _error_cur(const char* message);		// _error_at(&parser.current)
 
 // === moving ===
-static void _advance();					
+static void _advance();
 // move to next token, if meeting error skip everything
 
-static bool _check(TokenType type);		// check if current token has type
-static bool _match(TokenType type); 	// if matched, advance
+static bool _check(TokenType type);   // check if current token has type
+static bool _match(TokenType type);   // if matched, advance
 
 static void _consume(TokenType type, const char* message);
 // consume the current token, if not matched, print error message
@@ -113,6 +109,8 @@ static void _consume(TokenType type, const char* message);
 // === emitting ===
 static uint8_t _add_const(Value value);		
 // wrapper for chunk_add_const: add value to current chunk's constant pool
+// if value is in pool, return its position
+
 static uint8_t _add_identifier(Token* name);
 // wrapper for _add_const when value is ObjString in name
 
@@ -185,6 +183,8 @@ static void _literal(bool canAssign);
 static void _var(bool canAssign);		// just _parse_var(prev, cA)
 
 // = var =
+static uint8_t _var_decl(const char* message);
+static void _var_def(uint8_t global);
 static void _var_get(Token name);		// just _parse_var(name, false)
 static void _parse_var(Token name, bool canAssign);
 // Parse name. If next token is = and cA, parse expr and assign it to var
@@ -347,7 +347,7 @@ static bool _match(TokenType type) {
 // === emit ===
 
 static void _emit_byte(uint8_t byte) {
-	writeChunk(_chunk_cur()(), byte, parser.previous.line);
+	writeChunk(_chunk_cur(), byte, parser.previous.line);
 }
 
 static void _emit_bytes(uint8_t byte1, uint8_t byte2) {
@@ -388,7 +388,7 @@ static void _patch_jump(int offset) {
 	// Go back to offset (the first byte of jump) 
 	// 		and update the correct jump.
 	// Imgaine now we are at the second byte of jump: offset+1, 
-	// 		we should jump to _chunk_cur()()->count-1.
+	// 		we should jump to _chunk_cur()->count-1.
 
 	int jump = _chunk_cur()->count - offset - 2;
 	if (jump > UINT16_MAX) {
@@ -450,7 +450,7 @@ static ObjFunction* _compiler_end() {
 #ifdef DEBUG_PRINT_CODE
 	if (!parser.hadError) {
 		disassembleChunk(
-			_chunk_cur()(), 
+			_chunk_cur(), 
 			function->name!=NULL ? function->name->chars : "<script>"
 		);
 	}
@@ -538,11 +538,11 @@ static void _decl_class() {
 }
 
 static void _decl_fun() {
-	uint8_t global = _var_decl("Expect function name.");
+	uint8_t funName = _var_decl("Expect function name.");
 	_local_init(); 
 
 	_fun_def(TYPE_FUNCTION);
-	_var_def(global);
+	_var_def(funName);
 }
 
 static void _fun_def(FunctionType type) {
@@ -621,7 +621,7 @@ static void _expr() {
 
 static void _parse_prec(Precedence prec) {
 	_advance();
-	ParseFn prefixRule = rules[parser.previous.type]->prefix;
+	ParseFn prefixRule = rules[parser.previous.type].prefix;
 	// e.g. [1.2]  [+]	 [3.4]
 	// 		prev   cur 	  should call _number to parse [1.2] first
 
@@ -636,9 +636,9 @@ static void _parse_prec(Precedence prec) {
 	// Lox allows a = b = c;
 	prefixRule(canAssign);
 
-	while(prec <= rules[parser.current.type]->precedence) {
+	while(prec <= rules[parser.current.type].precedence) {
 		_advance();
-		ParseFn infixRule = rules[parser.previous.type]->infix;
+		ParseFn infixRule = rules[parser.previous.type].infix;
 		// e.g. [1.2]  [+]	 [3.4]
 		// 			   prev   cur 
 
@@ -746,7 +746,7 @@ static void _binary(bool canAssign) {
 	// e.g. [1.2]  [+]  [3.4] * [5.6]
 	//		       prev  cur			
 	TokenType opType = parser.previous.type;
-	ParseRule* rule = rules[opType];
+	ParseRule* rule = &rules[opType];
 	_parse_prec((Precedence)(rule->precedence + 1));
 
 	switch (opType) {
@@ -763,8 +763,6 @@ static void _binary(bool canAssign) {
 		default: return;
 	}
 }
-
-
 
 static void _and(bool canAssign) {
 	int endJump = _emit_jump(OP_JUMP_IF_FALSE);
@@ -788,59 +786,6 @@ static void _or (bool canAssign) {
 static bool _token_cmp(Token* a, Token* b) {
 	if (a->length != b->length) return false;
 	return memcmp(a->start, b->start, a->length) == 0;
-}
-
-static int _local_resolve(Compiler* compiler, Token* name) {
-	for (int i=compiler->localCount-1; i>=0; --i) {
-		Local* local = compiler->locals + i;
-		if (_token_cmp(name, &local->name)) {
-			if (local->depth == -1) {
-				error("Can't read local variable in its own initializer.");
-			}
-			return i;
-		} 
-	}
-	return -1;
-}
-
-static int _up_add(Compiler* compiler, uint8_t index, bool isLocal) {
-	// returns index in compiler->upvalues
-
-	int cnt = compiler->function->upvalueCount;			// why not storing the count and upvalues in the same place??
-	
-	if (cnt == UINT8_COUNT) {
-		error("Too many closure variables in function.");
-		return 0;
-	}
-
-	for (int i=0; i<cnt; ++i) {
-		Upvalue* up = &compiler->upvalues[i];
-		if (up->index == index && up->isLocal == isLocal) {
-			return i;
-		}
-	}	
-
-	compiler->upvalues[cnt].index = index;
-	compiler->upvalues[cnt].isLocal = isLocal;
-
-	return compiler->function->upvalueCount++;
-}
-
-static int _up_resolve(Compiler* compiler, Token* name) {
-	if (compiler->enclosing == NULL) return -1; 	// script
-
-	int local = _local_resolve(compiler->enclosing, name);
-	if (local != -1) {
-		compiler->enclosing->locals[local].isCaptured = true;
-		return _up_add(compiler, (uint8_t)local, true);
-	}
-
-	int upvalue = _up_resolve(compiler->enclosing, name);
-	if (upvalue != -1) {
-		return _up_add(compiler, (uint8_t)upvalue, false);
-	}
-
-	return -1;
 }
 
 static void _parse_var(Token name, bool canAssign) {
@@ -878,6 +823,17 @@ static void _var(bool canAssign) {
 
 static void _var_get(Token name) {
 	_parse_var(name, false);
+}
+
+static uint8_t _var_decl(const char* message) {
+	_consume(TOKEN_IDENTIFIER, message);
+
+	if (curCompiler->scopeDepth > 0) {
+		_local_decl();
+		return 0;
+	}
+
+	return _add_identifier(&parser.previous);
 }
 
 static Token _make_token(const char* name) {
@@ -952,17 +908,6 @@ static void _local_decl() {
 	_local_add(*name);
 }
 
-static uint8_t _var_decl(const char* message) {
-	_consume(TOKEN_IDENTIFIER, message);
-
-	if (curCompiler->scopeDepth > 0) {
-		_local_decl();
-		return 0;
-	}
-
-	return _add_identifier(&parser.previous);
-}
-
 static void _local_init() {
 	// only mark local variable as intialized.
 	if (curCompiler->scopeDepth == 0) return;
@@ -978,10 +923,80 @@ static void _var_def(uint8_t global) {
 	_emit_bytes(OP_DEFINE_GLOBAL, global);
 }
 
+static int _local_resolve(Compiler* compiler, Token* name) {
+	for (int i=compiler->localCount-1; i>=0; --i) {
+		Local* local = compiler->locals + i;
+		if (_token_cmp(name, &local->name)) {
+			if (local->depth == -1) {
+				error("Can't read local variable in its own initializer.");
+			}
+			return i;
+		} 
+	}
+	return -1;
+}
 
-// ==================== Statements =====================
+static int _up_add(Compiler* compiler, uint8_t index, bool isLocal) {
+	// returns index in compiler->upvalues
 
+	int cnt = compiler->function->upvalueCount;			// why not storing the count and upvalues in the same place??
+	
+	if (cnt == UINT8_COUNT) {
+		error("Too many closure variables in function.");
+		return 0;
+	}
 
+	for (int i=0; i<cnt; ++i) {
+		Upvalue* up = &compiler->upvalues[i];
+		if (up->index == index && up->isLocal == isLocal) {
+			return i;
+		}
+	}	
+
+	compiler->upvalues[cnt].index = index;
+	compiler->upvalues[cnt].isLocal = isLocal;
+
+	return compiler->function->upvalueCount++;
+}
+
+static int _up_resolve(Compiler* compiler, Token* name) {
+	if (compiler->enclosing == NULL) return -1; 	// script
+
+	int local = _local_resolve(compiler->enclosing, name);
+	if (local != -1) {
+		compiler->enclosing->locals[local].isCaptured = true;
+		return _up_add(compiler, (uint8_t)local, true);
+	}
+
+	int upvalue = _up_resolve(compiler->enclosing, name);
+	if (upvalue != -1) {
+		return _up_add(compiler, (uint8_t)upvalue, false);
+	}
+
+	return -1;
+}
+
+// === Statements ===
+
+static void _decl_stmt() {
+	if (_match(TOKEN_PRINT)) {
+		_stmt_print();
+	} else if (_match(TOKEN_IF)) {
+		_stmt_if();
+	} else if (_match(TOKEN_RETURN)) {
+		_stmt_return();
+	} else if (_match(TOKEN_WHILE)) {
+		_stmt_while();
+	} else if (_match(TOKEN_FOR)) {
+		_stmt_for();
+	} else if (_match(TOKEN_LEFT_BRACE)) {
+		_scope_begin();
+		_stmt_block();
+		_scope_end();
+	} else {
+		_stmt_expr();
+	}
+}
 
 static void _stmt_expr() {
 	_expr();
@@ -1031,7 +1046,7 @@ static void _stmt_if() {
 }
 
 static void _stmt_while() {
-	int loopStart = _chunk_cur()()->count;
+	int loopStart = _chunk_cur()->count;
 	_consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
 	_expr();
 	_consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
@@ -1085,7 +1100,7 @@ static void _stmt_block() {
 
 
 
-static void forStatement() {
+static void _stmt_for() {
 	// Syntax: for (initializer; condition; update/increment) {...}
 
 	_scope_begin();
@@ -1101,7 +1116,7 @@ static void forStatement() {
 	}
 
 	// condition
-	int loopStart = _chunk_cur()()->count;
+	int loopStart = _chunk_cur()->count;
 	int exitJump = -1;
 	if (!_match(TOKEN_SEMICOLON)) {		// non-trivial condition
 		_expr();							// expression in stack
@@ -1115,7 +1130,7 @@ static void forStatement() {
 	// update/increment
 	if (!_match(TOKEN_RIGHT_PAREN)) {		// non-trivial update
 		int bodyJump = _emit_jump(OP_JUMP);		// if cond, jump to body
-		int updateStart = _chunk_cur()()->count;
+		int updateStart = _chunk_cur()->count;
 		_expr();
 		_emit_byte(OP_POP);						// clear update expression
 		_consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'for'.");
@@ -1137,25 +1152,7 @@ static void forStatement() {
 	_scope_end();
 }
 
-static void _decl_stmt() {
-	if (_match(TOKEN_PRINT)) {
-		_stmt_print();
-	} else if (_match(TOKEN_IF)) {
-		_stmt_if();
-	} else if (_match(TOKEN_RETURN)) {
-		_stmt_return();
-	} else if (_match(TOKEN_WHILE)) {
-		_stmt_while();
-	} else if (_match(TOKEN_FOR)) {
-		forStatement();
-	} else if (_match(TOKEN_LEFT_BRACE)) {
-		_scope_begin();
-		_stmt_block();
-		_scope_end();
-	} else {
-		_stmt_expr();
-	}
-}
+
 
 static void method() {
 	_consume(TOKEN_FUN, "Expect 'fun' before method name.");

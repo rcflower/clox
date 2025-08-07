@@ -61,8 +61,8 @@ typedef struct {
 bool value_equal(Value a, Value b);
 void value_print(Value value);
 
-void array_init(ValueArray* array);
-void array_free(ValueArray* array);
-void array_add(ValueArray* array, Value value);
+void array_init(Array* array);
+void array_free(Array* array);
+void array_add(Array* array, Value value);
 
 #endif

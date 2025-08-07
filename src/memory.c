@@ -4,6 +4,7 @@
 #include "memory.h"
 #include "vm.h"
 #include "chunk.h"
+#include "value.h"
 
 #ifdef DEBUG_LOG_GC
 #include <stdio.h>
@@ -15,6 +16,7 @@
 void* reallocate(void* ptr, size_t oldSize, size_t newSize) {
 	vm.bytesAllocated += newSize - oldSize;
 	if (newSize > oldSize) {
+		
 #ifdef DEBUG_STRESS_GC
 		collectGarbage();
 #endif
@@ -112,7 +114,7 @@ void markValue(Value value) {
 	if (IS_OBJ(value)) markObj(AS_OBJ(value));
 }
 
-static void markArray(ValueArray* array) {
+static void markArray(Array* array) {
 	for (int i=0; i<array->count; ++i) {
 		markValue(array->values[i]);
 	}
